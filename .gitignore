@@ -1,0 +1,14 @@
+# PlatformIO build artifacts
+.pio/
+
+# IDE settings
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Credentials (ne jamais commit les mots de passe Wi-Fi)
+# include/AppConfig.h  # décommenter si vous souhaitez exclure vos identifiants
