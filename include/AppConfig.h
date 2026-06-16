@@ -23,12 +23,12 @@ constexpr uint8_t PinLedBlue = 27;
 constexpr uint8_t PinBuzzer = 14;
 
 constexpr uint16_t LightOnThreshold = 1800;
-constexpr float CoreWarningThresholdC = 45.0F;
-constexpr float CoreCriticalThresholdC = 60.0F;
+constexpr float CoreWarningThresholdC = 28.0F;
+constexpr float CoreCriticalThresholdC = 32.0F;
 constexpr float RoomWarningThresholdC = 35.0F;
-constexpr float RoomCriticalThresholdC = 45.0F;
-constexpr float HumidityWarningThresholdPercent = 70.0F;
-constexpr float HumidityCriticalThresholdPercent = 85.0F;
+constexpr float RoomCriticalThresholdC = 40.0F;
+constexpr float HumidityWarningThresholdPercent = 50.0F;
+constexpr float HumidityCriticalThresholdPercent = 60.0F;
 
 constexpr uint32_t AcquisitionPeriodMs = 2000;
 constexpr uint32_t ControlPeriodMs = 50;

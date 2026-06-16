@@ -16,13 +16,15 @@ class EncoderInput {
   int positionPercent() const;
   void setPositionPercent(int value);
   ButtonEvent consumeButtonEvent();
-  void handleInterrupt();
 
  private:
   uint8_t clkPin_;
   uint8_t dtPin_;
   uint8_t swPin_;
-  volatile int positionPercent_ = 0;
+  int positionPercent_ = 0;
+
+  int lastClk_ = HIGH;
+  uint32_t lastRotationMs_ = 0;
 
   int lastButton_ = HIGH;
   uint32_t buttonPressedAtMs_ = 0;

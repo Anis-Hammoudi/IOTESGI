@@ -57,7 +57,7 @@ bool validateAndApplyCommand(const String& payload, ReactorState& state) {
 
   if (command == "EMERGENCY_STOP") {
     state.emergencyStop = true;
-    state.alarmAcknowledged = false;
+    state.alarmAcknowledged = true;
     state.rodPositionPercent = 100;
     return true;
   }

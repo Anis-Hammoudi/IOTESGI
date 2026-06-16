@@ -1,23 +1,18 @@
 #include "AlarmBuzzer.h"
 
-// Canal LEDC dédié au buzzer
-static constexpr uint8_t BuzzerChannel = 0;
-static constexpr uint8_t BuzzerResolution = 8;
-static constexpr uint32_t BuzzerFrequency = 2000; // Hz
-
 AlarmBuzzer::AlarmBuzzer(uint8_t pin) : pin_(pin) {}
 
 void AlarmBuzzer::begin() {
-  ledcSetup(BuzzerChannel, BuzzerFrequency, BuzzerResolution);
-  ledcAttachPin(pin_, BuzzerChannel);
-  ledcWriteTone(BuzzerChannel, 0); // Silence au démarrage
+  pinMode(pin_, OUTPUT);
+  // Le module HW-508 semble être "Active High" (il sonne avec du 3.3V).
+  // On le met donc à LOW pour le rendre silencieux par défaut.
+  digitalWrite(pin_, LOW); 
 }
 
 void AlarmBuzzer::setActive(bool active) {
   if (active) {
-    ledcWriteTone(BuzzerChannel, BuzzerFrequency);
+    digitalWrite(pin_, HIGH); // HIGH = Alarme ON
   } else {
-    ledcWriteTone(BuzzerChannel, 0);
+    digitalWrite(pin_, LOW);  // LOW = Alarme OFF
   }
 }
-

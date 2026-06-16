@@ -61,13 +61,19 @@ ReactorStatus evaluateStatus(const ReactorState& state) {
   if (!state.reactorOnline) {
     return ReactorStatus::Offline;
   }
-  const bool coreCritical = !isnan(state.coreTemperatureC) && state.coreTemperatureC >= AppConfig::CoreCriticalThresholdC;
-  const bool roomCritical = !isnan(state.roomTemperatureC) && state.roomTemperatureC >= AppConfig::RoomCriticalThresholdC;
-  const bool humidityCritical = !isnan(state.roomHumidityPercent) &&
-                                state.roomHumidityPercent >= AppConfig::HumidityCriticalThresholdPercent;
-  if (coreCritical || roomCritical || humidityCritical) {
+
+  // Alarme critique : (humidité >= 60% ET temp room >= 40°C) OU radiation >= 32°C
+  const bool radiationCritical = !isnan(state.coreTemperatureC) &&
+                                  state.coreTemperatureC >= AppConfig::CoreCriticalThresholdC;
+  const bool roomAndHumidityCritical =
+      (!isnan(state.roomTemperatureC) && state.roomTemperatureC >= AppConfig::RoomCriticalThresholdC) &&
+      (!isnan(state.roomHumidityPercent) && state.roomHumidityPercent >= AppConfig::HumidityCriticalThresholdPercent);
+
+  if (radiationCritical || roomAndHumidityCritical) {
     return ReactorStatus::Critical;
   }
+
+  // Avertissement précoce
   const bool coreWarning = !isnan(state.coreTemperatureC) && state.coreTemperatureC >= AppConfig::CoreWarningThresholdC;
   const bool roomWarning = !isnan(state.roomTemperatureC) && state.roomTemperatureC >= AppConfig::RoomWarningThresholdC;
   const bool humidityWarning = !isnan(state.roomHumidityPercent) &&
@@ -150,6 +156,7 @@ void acquisitionTask(void*) {
 void controlTask(void*) {
   TickType_t lastWake = xTaskGetTickCount();
   int lastEncoderPos = encoder.positionPercent();
+  bool wasInAlarm = false; // Pour détecter la transition vers l'alarme
 
   for (;;) {
     encoder.update();
@@ -158,40 +165,41 @@ void controlTask(void*) {
     ReactorState snapshot = copyState();
     const int currentEncoderPos = encoder.positionPercent();
 
-    // Synchronisation bidirectionnelle : Matériel vs Web UI
+    // L'opérateur peut TOUJOURS modifier la position des barres
     if (currentEncoderPos != lastEncoderPos) {
-      // Priorité au matériel si l'utilisateur a tourné le bouton physique
       snapshot.rodPositionPercent = currentEncoderPos;
       lastEncoderPos = currentEncoderPos;
     } else if (snapshot.rodPositionPercent != lastEncoderPos) {
-      // La commande vient du Web UI
       encoder.setPositionPercent(snapshot.rodPositionPercent);
       lastEncoderPos = snapshot.rodPositionPercent;
     }
 
+    // Bouton : appui court = acquitter alarme, appui long = arrêt urgence
     if (buttonEvent == ButtonEvent::ShortPress) {
       snapshot.alarmAcknowledged = true;
     }
     if (buttonEvent == ButtonEvent::LongPress) {
       snapshot.emergencyStop = true;
-      snapshot.alarmAcknowledged = false;
-      snapshot.rodPositionPercent = 100;
-      encoder.setPositionPercent(100);
-      lastEncoderPos = 100;
+      snapshot.alarmAcknowledged = true; // Silence buzzer on emergency stop
     }
 
     snapshot.status = evaluateStatus(snapshot);
-    if (snapshot.status == ReactorStatus::Critical || snapshot.status == ReactorStatus::EmergencyStop) {
+
+    // À l'entrée en alarme : barres automatiquement à 100%
+    const bool inAlarm = (snapshot.status == ReactorStatus::Critical ||
+                          snapshot.status == ReactorStatus::EmergencyStop);
+    if (inAlarm && !wasInAlarm) {
+      // Transition vers l'alarme : forcer les barres à 100%
       snapshot.rodPositionPercent = 100;
       encoder.setPositionPercent(100);
       lastEncoderPos = 100;
     }
+    wasInAlarm = inAlarm;
+    // Après la transition, l'opérateur peut librement modifier la position
 
     controlRodServo.setInsertionPercent(snapshot.rodPositionPercent);
     statusLed.show(snapshot.status, snapshot.mqttConnected);
-    alarmBuzzer.setActive((snapshot.status == ReactorStatus::Critical ||
-                           snapshot.status == ReactorStatus::EmergencyStop) &&
-                          !snapshot.alarmAcknowledged);
+    alarmBuzzer.setActive(inAlarm && !snapshot.alarmAcknowledged);
 
     mutateState([&snapshot](ReactorState& state) {
       state.alarmAcknowledged = snapshot.alarmAcknowledged;
