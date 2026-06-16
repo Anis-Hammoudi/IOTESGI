@@ -4,7 +4,7 @@ AlarmBuzzer::AlarmBuzzer(uint8_t pin) : pin_(pin) {}
 
 void AlarmBuzzer::begin() {
   pinMode(pin_, OUTPUT);
-  // Le module HW-508 semble être "Active High" (il sonne avec du 3.3V).
+  // Le module HW-c508 semble être "Active High" (il sonne avec du 3.3V).
   // On le met donc à LOW pour le rendre silencieux par défaut.
   digitalWrite(pin_, LOW); 
 }

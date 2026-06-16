@@ -1,94 +1,133 @@
-# Rapport Technique : Station IoT - Nuclear Reactor
+# Rapport Technique : Système IoT Sécurisé et Autonome
 
-Ce rapport accompagne le projet de fin de module "Système IoT sécurisé et autonome".
-Le système implémente une supervision de réacteur (capteurs de lumière, DHT22, DS18B20) et des contrôles de sécurité avec une interface Web embarquée, du MQTT, et un mode hors-ligne.
+**Projet de fin de module : Conception d'une station IoT de supervision de réacteur**
+**Équipe :** Mehdi CHEDAD, Anis Hammoudi, Sanaa Zouine
 
 ---
 
-## 1. Choix de l'Architecture et Rôle du Scheduler
+## 1. Introduction et Contexte
 
-Le choix de FreeRTOS pour ce projet plutôt qu'une boucle `loop()` séquentielle Arduino classique est justifié par le besoin de **déterminisme et de réactivité critique**.
+Dans le cadre du déploiement de stations IoT pour la surveillance de bâtiments techniques (ici simulé par un réacteur nucléaire), ce rapport détaille la conception du firmware et de l'infrastructure logicielle d'une station autonome et sécurisée à base d'ESP32. 
 
-*   **Rôle du scheduler** : Le scheduler (ou ordonnanceur) de FreeRTOS est le composant système qui décide à chaque "tick" quelle tâche doit être exécutée par le CPU. Il se base sur la priorité des tâches et leur état (Prêt, Bloqué, Suspendu).
-*   **Tâche vs Fonction** : Une fonction standard s'exécute de la première à la dernière ligne puis rend la main. Une tâche FreeRTOS est un programme indépendant doté de sa propre pile d'exécution (stack) et d'une boucle infinie. Elle peut être interrompue (préemptée) à tout moment par le scheduler.
-*   **vTaskDelay()** : Cette instruction met la tâche dans l'état *Bloqué* pendant un nombre donné de ticks. Contrairement à une boucle d'attente active ou un `delay()` basique, elle informe le scheduler que la tâche n'a plus besoin du CPU, permettant aux autres tâches de s'exécuter.
-*   **Pourquoi le multitâche ici ?** : Le système doit réagir instantanément au bouton d'arrêt d'urgence. Si nous étions dans une boucle séquentielle et qu'un `mqtt.publish()` bloquait (par exemple à cause d'un réseau lent), l'arrêt d'urgence serait ignoré pendant ce laps de temps. Avec FreeRTOS, la tâche de contrôle interrompt le réseau pour agir.
+L'objectif principal est de garantir la fiabilité de l'acquisition des capteurs, de survivre aux pannes de réseau (mode hors-ligne) et de maintenir un système de contrôle local et distant hautement réactif. Le projet respecte scrupuleusement le cahier des charges : architecture modulaire, système multitâche (FreeRTOS) sans code monolithique ni boucles d'attente actives (`delay()`).
 
-## 2. Analyse de l'instruction `vTaskDelay`
+---
 
-Instruction : `vTaskDelay(pdMS_TO_TICKS(1000));`
+## 2. Architecture Matérielle
 
-*   **Signification** : Met en pause la tâche courante pour exactement 1000 millisecondes (converties en nombre de ticks selon la configuration de l'OS).
-*   **Étapes** : 
-    1. La tâche appelle la fonction.
-    2. Son état passe de *Running* (en cours) à *Blocked* (bloqué).
-    3. Le scheduler effectue un changement de contexte (context switch) et alloue le CPU à la tâche *Ready* de plus haute priorité.
-    4. Un timer interne matériel décrémente le délai.
-    5. Après 1000 ms, la tâche repasse à l'état *Ready* et le scheduler évalue à nouveau les priorités pour lui redonner le CPU si elle est la plus prioritaire.
-*   **Les autres tâches** : Elles s'exécutent normalement et se partagent le CPU pendant que cette tâche "dort".
+La station utilise les capteurs et actionneurs suivants pour répondre aux contraintes minimales et de supervision avancée :
 
-## 3. Justification des Priorités FreeRTOS
+### Capteurs (Acquisition)
+*   **DHT22 (Environnement)** : Mesure de la température et de l'humidité ambiante de la salle de contrôle.
+*   **DS18B20 (Avancé)** : Mesure précise de la température du cœur du réacteur (capteur étanche OneWire).
+*   **Photorésistance HW-486 (Lumière)** : Détection d'état ou d'ouverture (détermine si le réacteur est "en ligne").
+*   **Encodeur rotatif + Bouton poussoir (Interaction)** : Contrôle manuel du pourcentage d'insertion des barres de contrôle et acquittement des alarmes (ou arrêt d'urgence par appui long).
 
-Les priorités ont été assignées (de 1 à 4, 4 étant la plus haute) en fonction de la criticité temporelle :
+### Actionneurs (Contrôle)
+*   **Servo SG90 (Intelligent)** : Simule l'insertion mécanique des barres de contrôle du réacteur (0 à 100%).
+*   **Buzzer HW-508 (Simple)** : Alarme sonore en cas de criticité (températures anormales).
+*   **LED RGB NeoPixel / StatusLed** : Indicateur visuel d'état (Vert = Nominal, Orange = Avertissement, Rouge = Critique, Bleu = Perte MQTT).
 
-*   **Priorité 4 (Très Haute) - `controlTask`** : Gère l'encodeur, le bouton d'arrêt d'urgence et le pilotage du servo-moteur (barres de contrôle). C'est la tâche de sécurité critique, elle doit préempter toutes les autres tâches pour agir en moins de 50 ms.
-*   **Priorité 3 (Haute) - `acquisitionTask`** : Lit les capteurs (I2C, OneWire). L'acquisition doit être régulière pour ne rater aucun dépassement de seuil, mais elle est moins critique qu'un appui d'urgence.
-*   **Priorité 2 (Moyenne) - `networkTask`** : Gère la communication réseau (WiFi et MQTT). Peut tolérer des délais (la latence réseau est inhérente) et ne doit jamais bloquer les lectures de capteurs.
-*   **Priorité 1 (Basse) - `webTask` et `supervisorTask`** : L'interface web et le log des statistiques mémoire sont des tâches de "confort". Elles utilisent le temps CPU restant sans jamais gêner les opérations vitales de la station.
+---
 
-## 4. Nécessité de `vTaskDelay()`
+## 3. Architecture Logicielle Modulaire
 
-Il est vital de trouver au moins un `vTaskDelay(...)` (ou tout appel bloquant comme l'attente d'un Mutex ou d'une Queue) dans une boucle de tâche FreeRTOS. 
-Sans cela, si la tâche est de forte priorité, elle consommera 100% du temps CPU. Le scheduler ne rendra jamais la main aux tâches de priorité inférieure (c'est la "famine" ou *starvation*). De plus, l'absence de pause empêche le Chien de Garde matériel (Watchdog Timer - WDT) d'être réinitialisé, ce qui fera planter l'ESP32.
+Afin d'éviter l'écueil du code monolithique (logique métier dans `loop()`), le code source a été strictement séparé en dossiers fonctionnels :
 
-## 5. Cas d'une boucle `while(true) { mqtt.publish(...); }`
+*   `src/sensors/` : Classes d'abstraction des capteurs (`EnvironmentSensor`, `RadiationSensor`, etc.) intégrant le filtrage logiciel.
+*   `src/actuators/` : Classes de pilotage du matériel (`ControlRodServo`, `AlarmBuzzer`, `StatusLed`).
+*   `src/network/` : Gestionnaires de connexion `ConnectivityManager` (WiFi) et `MqttClientManager` (MQTT).
+*   `src/storage/` : Système de fichiers LittleFS pour la file d'attente hors-ligne (`OfflineStore`).
+*   `src/web/` : Serveur web asynchrone embarqué (`WebServerManager`).
+*   `src/models/` : Structures de données (ex. `ReactorState`) garantissant la cohérence de la mémoire.
 
-Si cette fonction s'exécute sans aucun délai :
-*   Le module va spammer le serveur MQTT.
-*   Le CPU de l'ESP32 sera accaparé par cette tâche réseau.
-*   Le Watchdog Timer va très rapidement détecter l'anomalie et redémarrer brutalement la carte.
-*   Les autres tâches (si leur priorité est plus basse) subiront une "starvation".
+---
 
-## 6. Problème de l'inversion des priorités : `TaskMQTT(20)` vs `TaskSensors(1)`
+## 4. Fonctionnalités Clés et Badges Débloqués
 
-Si `TaskMQTT` est mis à priorité 20 et `TaskSensors` à 1, le système **ne sera pas meilleur**.
-Au contraire : les communications réseau impliquent des temps d'attente matériels importants. Avec une priorité de 20, le traitement MQTT préemptera la lecture des capteurs. En cas de perte de connexion ou de ralentissement TCP, la station IoT cessera de lire l'état du réacteur, ce qui annule toute notion de sécurité temps-réel. La règle d'or est le "Rate Monotonic Scheduling" : les tâches aux délais d'exécution les plus courts et les plus critiques doivent avoir les priorités les plus hautes.
+### 🟢 Sensor Engineer : Acquisition fiable et filtrage
+Les mesures des capteurs ne sont jamais remontées brutes si elles sont erratiques.
+*   **Rejet d'aberrations** : Le `EnvironmentSensor` (DHT22) ignore les valeurs impossibles (ex. humidité > 100% ou hors spectre de température).
+*   **Filtrage EMA (Exponential Moving Average)** : Les températures sont lissées avec un coefficient alpha pour éviter les pics soudains et les fausses alarmes matérielles.
+*   **Horodatage (Timestamp)** : Toutes les données sont horodatées localement dès la lecture.
 
-## 7. Protection de variable globale partagée
+### 🔵 Network Engineer : Communication MQTT Robuste
+L'ESP32 publie sur `campus/<groupe>/<deviceID>/data` et écoute les commandes sur `/cmd`.
+*   **Qualité de service (QoS 1)** : Garantit qu'au moins une livraison de la télémétrie est confirmée par le broker.
+*   **Reconnexion asynchrone** : En cas de perte WiFi ou MQTT, le système tente de se reconnecter périodiquement toutes les 5 secondes sans jamais bloquer l'acquisition des capteurs ou la boucle de sécurité.
 
-```cpp
-int temperature;
-TaskSensors: temperature = readTemp();
-TaskWeb:     Serial.println(temperature);
-```
-Ce code n'est pas thread-safe (non correct d'un point de vue RTOS).
-Si la lecture ou l'écriture n'est pas atomique au niveau du processeur (ce qui est souvent le cas sur les struct ou flottants), ou si deux cœurs (ESP32) accèdent à la RAM simultanément, il y a un risque de corruption de données (data race). La tâche web pourrait lire une donnée à moitié modifiée.
+### ⚫ Reliability Engineer : Survie aux pannes (Mode Offline)
+Si le réseau MQTT tombe, la station IoT continue de fonctionner :
+*   **Stockage JSON** : Les trames télémétriques sont écrites dans la mémoire flash (`LittleFS`) au format strict JSON requis.
+*   **Retransmission automatique** : Dès le rétablissement de la connexion, `OfflineStore` dépile les anciens JSON et les re-publie avant d'envoyer les nouvelles données.
 
-## 8. Mutex, Queue, ou Sémaphore
+### 🔴 Security Engineer : Sécurité minimale
+*   **Authentification MQTT** : Utilisation d'identifiants (nom d'utilisateur et mot de passe).
+*   **Protection API Locale** : L'interface web et les endpoints API (Configuration, Commandes) nécessitent une authentification HTTP *Basic Auth* (User: `operator`).
+*   **Validation JSON** : Toute commande reçue via l'interface web ou MQTT est passée par `deserializeJson()` avec vérification d'erreurs avant application (`validateAndApplyCommand`), évitant les crashs mémoire (Buffer Overflows).
 
-*   **Mutex (Mutual Exclusion)** : C'est un jeton unique (verrou) utilisé pour protéger une ressource partagée. Une seule tâche peut le posséder à la fois.
-*   **Queue** : Une file d'attente FIFO permettant d'échanger des données entre différentes tâches de manière sûre (Thread-Safe).
-*   **Sémaphore** : Ressemble à un Mutex mais agit plutôt comme un compteur (pour limiter un nombre de ressources) ou un signal d'une tâche à une autre (synchronisation).
+### 🟣 Full-Stack IoT : Interface Web & Node-RED
+*   **Web embarqué** : Fichiers déportés `index.html`, `app.js`, `style.css` stockés dans `/data` et servis par l'ESP32. Permet la visualisation en direct (AJAX), la configuration MQTT et le pilotage des actionneurs.
+*   **Node-RED & Grafana** : Un flux externe Node-RED (`node_red_flow.json` fourni) reçoit le MQTT, intègre la donnée en base NoSQL (InfluxDB) et permet un affichage complet sur **Grafana** (dashboard des mesures et surveillance de la robustesse).
 
-**Quand utiliser un Mutex plutôt qu'une Queue ?**
-On utilise un Mutex lorsque plusieurs tâches ont besoin de lire ou d'écrire l'état actuel d'une structure (ex: `ReactorState`), sans notion d'historique. 
-On utilise une Queue lorsqu'on veut passer un flux continu d'événements (ex: une suite de trames JSON à envoyer) d'une tâche productrice à une tâche consommatrice.
+### 🟡 Performance Engineer : Optimisation mémoire
+*   **Supervision** : Une tâche `supervisorTask` tourne en fond et affiche périodiquement le `freeHeap` (RAM libre), l'uptime et la taille de la file hors-ligne. L'utilisation d'objets alloués dynamiquement est limitée pour éviter la fragmentation mémoire.
 
-## 9. Pourquoi une Queue serait meilleure pour passer une température ?
+---
 
-```cpp
-TaskSensors { temp = read(); }
-TaskMQTT { publish(temp); }
-```
-Dans ce cas précis, utiliser une **Queue** est bien meilleur qu'un Mutex.
-Si le réseau est lent, le `publish` va prendre du temps. Avec un Mutex, `TaskSensors` serait bloquée en attendant de pouvoir écrire la nouvelle valeur. Avec une Queue, `TaskSensors` pousse ses valeurs dans la file et repart immédiatement faire autre chose. `TaskMQTT` dépile les valeurs à son rythme. Cela garantit un découplage total et l'absence de perte de points de données.
+## 5. Gestion Multitâche & Analyse Temps Réel (FreeRTOS)
 
-## 10. La "Starvation" (Famine)
+Le cœur de notre architecture repose sur l'ordonnanceur FreeRTOS. Le choix du RTOS face à une boucle `loop()` séquentielle est dicté par le besoin de **déterminisme et de réactivité critique**.
 
-La *starvation* se produit lorsqu'une ou plusieurs tâches de faible priorité n'obtiennent jamais l'accès au CPU, car des tâches de plus haute priorité sont toujours "Ready" et accaparent tout le temps machine.
-**Exemple** : Une tâche `TaskCompute` de priorité 3 qui fait une boucle de calcul cryptographique infinie sans aucun `vTaskDelay`. Si une tâche `TaskBlinkLED` de priorité 1 essaie de s'exécuter, le scheduler ne lui donnera jamais la main. La LED ne clignotera jamais.
+### Affectation des Priorités (Rate Monotonic Scheduling)
+Les priorités (de 1 à 4) reflètent la criticité :
+*   **Priorité 4 (controlTask)** : Pilotage de l'encodeur, bouton d'urgence et servo. C'est la tâche de sécurité critique, elle préempte toutes les autres pour réagir en < 50ms.
+*   **Priorité 3 (acquisitionTask)** : Lecture capteurs. Ne doit pas être bloquée par le réseau.
+*   **Priorité 2 (networkTask)** : WiFi, MQTT. Tolère des délais, s'exécute quand le matériel est prêt.
+*   **Priorité 1 (webTask, supervisorTask)** : Tâches de confort (statistiques, Web UI) utilisant le temps CPU restant.
 
-## 11. Bilan : FreeRTOS vs Boucle Arduino
+---
 
-Une boucle classique `loop()` Arduino traite chaque instruction de façon strictement séquentielle. Si la fonction qui s'occupe du client WiFi se bloque pendant 3 secondes lors d'une reconnexion (timeout classique), tout le programme est gelé. Aucun capteur n'est lu, le bouton d'arrêt d'urgence est mort.
-Dans un contexte industriel comme ce TP (système sécurisé et autonome), ce comportement est inacceptable. FreeRTOS garantit le temps-réel (RTOS) : grâce à la préemption temporelle, la tâche de contrôle s'exécutera toujours toutes les 50 ms avec une précision absolue, peu importe si le réseau MQTT plante, car sa priorité de 4 impose au scheduler d'interrompre toute autre tâche défaillante.
+## 6. Réponses aux Questions Subsidiaires
+
+**1. Rôle du scheduler, tâche vs fonction, intérêt de vTaskDelay(), pourquoi l'architecture multitâche ?**
+Le *scheduler* orchestre l'exécution en allouant le CPU aux tâches selon leur priorité. Une *fonction* s'exécute de façon séquentielle de la première à la dernière ligne puis s'arrête, alors qu'une *tâche* FreeRTOS est une boucle infinie dotée de sa propre pile, préemptable à tout moment. `vTaskDelay()` suspend une tâche de façon non-bloquante, libérant le CPU. L'architecture multitâche est cruciale ici pour réagir instantanément aux alarmes (bouton urgence) sans être bloqué par des latences réseau (typiques d'une simple `loop()`).
+
+**2. Que signifie vTaskDelay(pdMS_TO_TICKS(1000)); ? Étapes et impact sur les autres tâches ?**
+Cette instruction bloque la tâche courante pendant 1000 millisecondes (converties en ticks matériels). 
+*Étapes* : La tâche passe de *Running* à *Blocked*. Le scheduler cède immédiatement le CPU à la tâche *Ready* la plus prioritaire. Un timer matériel compte les ticks en fond. Après 1000ms, la tâche repasse à l'état *Ready* et peut reprendre le CPU. Pendant ce temps de pause, *les autres tâches* utilisent librement le CPU.
+
+**3. Justifier les priorités FreeRTOS.**
+Justifiées dans la Section 5 ci-dessus : la sécurité mécanique (Encodeur/Servo/Bouton urgence) préempte tout (`Prio 4`), suivie de la lecture capteur pour ne perdre aucune alerte (`Prio 3`). Le réseau (`Prio 2`) et l'interface Web (`Prio 1`) s'exécutent en arrière-plan sans jamais figer la sécurité.
+
+**4. Pourquoi faut-il presque toujours un vTaskDelay(...) ?**
+Pour empêcher une tâche de s'accaparer 100% du CPU (causant la *starvation* des tâches inférieures) et pour permettre au Watchdog matériel (WDT) de se réinitialiser. Sans délai, l'ESP32 plantera.
+
+**5. Dans `while(true) { mqtt.publish(...); }` (sans vTaskDelay) :**
+Le code inonderait le broker MQTT, bloquerait instantanément toutes les tâches de priorités inférieures ou égales, et déclencherait presque immédiatement un redémarrage d'urgence (Crash) provoqué par le Watchdog Timer de l'ESP32.
+
+**6. `TaskMQTT` priorité 20 vs `TaskSensors` priorité 1 : Système meilleur ?**
+Non, le système serait catastrophique. Le réseau TCP/MQTT implique de grandes latences (timeouts). Avec une priorité de 20, le réseau préemptera l'acquisition de données. La moindre perte de paquet WiFi empêcherait la lecture des capteurs, rendant la station aveugle à toute explosion thermique du réacteur.
+
+**7. Variable globale partagée `temperature` : le code est-il correct ?**
+Non, ce code n'est pas "Thread-Safe" (risque de *Data Race*). Si les lectures/écritures ne sont pas atomiques, ou que les cœurs accèdent à la RAM simultanément (sur ESP32 dual-core), la tâche web peut lire une valeur corrompue (à moitié modifiée par `TaskSensors`).
+
+**8. Mutex, Queue ou Sémaphore (définition et Mutex vs Queue) :**
+*   **Mutex** : Verrou assurant l'exclusion mutuelle pour protéger une ressource critique.
+*   **Queue** : File d'attente FIFO thread-safe.
+*   **Sémaphore** : Compteur ou simple signalisation entre tâches.
+On utilise un *Mutex* pour protéger l'état instantané (ex: `ReactorState`), où l'on veut juste la "dernière valeur", alors qu'une *Queue* est utilisée pour transférer un flux d'événements à dépiler (ex: trames MQTT à envoyer) sans perdre l'historique.
+
+**9. `TaskSensors { temp = read(); }` -> `TaskMQTT { publish(temp); }` : Pourquoi une Queue est meilleure ?**
+Avec une Queue, l'acquisition et le réseau sont totalement asynchrones. La `TaskSensors` pousse la valeur et repart faire son travail en 1 milliseconde. La `TaskMQTT` dépile à son rythme. Si MQTT ralentit à cause d'un réseau instable, `TaskSensors` ne sera jamais bloquée en attente.
+
+**10. Que signifie Starvation ? Exemple.**
+La "Famine" ou *Starvation* survient quand des tâches de priorité élevée consomment tout le temps CPU, laissant les tâches de faible priorité dans l'état *Ready* de façon perpétuelle, sans jamais s'exécuter. Exemple : Si une tâche de cryptographie (`Prio 3`) tourne en boucle sans `vTaskDelay`, une tâche d'affichage LED (`Prio 1`) ne clignotera jamais.
+
+**11. Pourquoi FreeRTOS plutôt qu'une boucle Arduino ?**
+Une boucle classique (`void loop()`) exécute le code séquentiellement. Si `mqtt.connect()` tente de se connecter au WiFi et bloque pendant 5 secondes (timeout réseau standard), le code est complètement gelé pendant 5 secondes : le bouton d'arrêt d'urgence est mort, et les capteurs ne mesurent plus rien. FreeRTOS (grâce au scheduler préemptif) garantit que la lecture du bouton et des capteurs interrompra instantanément la fonction réseau défaillante.
+
+---
+
+## 7. Conclusion
+Le système livré correspond intégralement aux spécifications demandées pour une architecture IoT industrielle. L'appareil est modulaire, autonome, résistant aux coupures réseau (spooling local) et sécurisé, tout en garantissant des temps de réaction déterministes.
