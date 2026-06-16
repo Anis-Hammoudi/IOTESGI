@@ -1,0 +1,7 @@
+madhephaestus/ESP32Servo@^3.0.6
+paulstoffregen/OneWire@^2.3.8
+arduino-libraries/ArduinoMqttClient@^0.1.8
+milesburton/DallasTemperature@^3.11.0
+bblanchon/ArduinoJson@^6.21.5
+adafruit/Adafruit Unified Sensor@^1.1.14
+adafruit/DHT sensor library@^1.4.6

@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Nuclear Reactor Supervision</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <p class="eyebrow">Station ESP32</p>
+        <h1>Nuclear Reactor</h1>
+        <p class="subtitle">Supervision locale, alarmes autonomes et relais MQTT résilient.</p>
+      </section>
+
+      <section class="grid">
+        <article class="card status-card">
+          <span id="statusBadge" class="badge">UNKNOWN</span>
+          <h2>État réacteur</h2>
+          <p><strong>Réacteur :</strong> <span id="reactorOnline">—</span></p>
+          <p><strong>Barres graphite :</strong> <span id="rodPosition">—</span>%</p>
+          <p><strong>Alarme acquittée :</strong> <span id="alarmAck">—</span></p>
+        </article>
+
+        <article class="card">
+          <h2>Mesures critiques</h2>
+          <p><strong>Luminosité :</strong> <span id="lightRaw">—</span></p>
+          <p><strong>Radiation simulée :</strong> <span id="coreTemp">—</span> °C</p>
+          <p><strong>Température salle :</strong> <span id="roomTemp">—</span> °C</p>
+          <p><strong>Humidité salle :</strong> <span id="humidity">—</span> %</p>
+        </article>
+
+        <article class="card">
+          <h2>Connectivité</h2>
+          <p><strong>WiFi :</strong> <span id="wifi">—</span></p>
+          <p><strong>MQTT :</strong> <span id="mqtt">—</span></p>
+          <p><strong>File offline :</strong> <span id="offlineQueue">—</span></p>
+          <p><strong>Heap libre :</strong> <span id="heap">—</span> bytes</p>
+        </article>
+
+        <article class="card">
+          <h2>Commandes locales</h2>
+          <div class="buttons">
+            <button data-command="ACK_ALARM">Acquitter</button>
+            <button data-command="EMERGENCY_STOP" class="danger">Arrêt urgence</button>
+            <button data-command="RESET_EMERGENCY">Réarmement</button>
+          </div>
+          <label>
+            Position barres
+            <input id="rodInput" type="range" min="0" max="100" value="0" />
+          </label>
+          <button id="sendRod">Envoyer position</button>
+        </article>
+
+        <article class="card wide">
+          <h2>Configuration MQTT</h2>
+          <form id="mqttForm">
+            <input name="host" placeholder="Broker MQTT" required />
+            <input name="port" type="number" placeholder="1883" value="1883" required />
+            <input name="username" placeholder="Utilisateur" />
+            <input name="password" type="password" placeholder="Mot de passe" />
+            <input name="baseTopic" placeholder="campus/groupe-nuclear/reactor-esp32-01" required />
+            <button type="submit">Sauvegarder</button>
+          </form>
+          <p class="hint">API protégée par Basic Auth : operator / reactor.</p>
+        </article>
+      </section>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>

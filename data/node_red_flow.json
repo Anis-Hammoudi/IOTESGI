@@ -1,0 +1,87 @@
+[
+    {
+        "id": "c1f7a0b3.e4d8c",
+        "type": "tab",
+        "label": "Nuclear Reactor Dashboard",
+        "disabled": false,
+        "info": "Dashboard and InfluxDB integration for TP IoT"
+    },
+    {
+        "id": "mqtt_in",
+        "type": "mqtt in",
+        "z": "c1f7a0b3.e4d8c",
+        "name": "MQTT Data",
+        "topic": "campus/+/+/data",
+        "qos": "1",
+        "datatype": "json",
+        "broker": "broker_config",
+        "x": 130,
+        "y": 140,
+        "wires": [
+            [
+                "format_influx",
+                "debug_node"
+            ]
+        ]
+    },
+    {
+        "id": "format_influx",
+        "type": "function",
+        "z": "c1f7a0b3.e4d8c",
+        "name": "Format InfluxDB",
+        "func": "if (!msg.payload || !msg.payload.data) return null;\n\nmsg.payload = [\n  {\n    temperature: msg.payload.data.temp,\n    humidity: msg.payload.data.humidity,\n    core_radiation: msg.payload.data.coreRadiationC,\n    rod_position: msg.payload.data.rodPositionPercent,\n    free_heap: msg.payload.data.freeHeap,\n    offline_queue: msg.payload.data.offlineQueueSize\n  },\n  {\n    device: msg.payload.device\n  }\n];\nreturn msg;",
+        "outputs": 1,
+        "x": 360,
+        "y": 140,
+        "wires": [
+            [
+                "influxdb_out"
+            ]
+        ]
+    },
+    {
+        "id": "influxdb_out",
+        "type": "influxdb out",
+        "z": "c1f7a0b3.e4d8c",
+        "name": "Save to InfluxDB",
+        "measurement": "reactor_telemetry",
+        "precision": "",
+        "retentionPolicy": "",
+        "database": "database_config",
+        "x": 580,
+        "y": 140,
+        "wires": []
+    },
+    {
+        "id": "debug_node",
+        "type": "debug",
+        "z": "c1f7a0b3.e4d8c",
+        "name": "Debug Output",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "x": 360,
+        "y": 80,
+        "wires": []
+    },
+    {
+        "id": "broker_config",
+        "type": "mqtt-broker",
+        "name": "Local Broker",
+        "broker": "localhost",
+        "port": "1883",
+        "clientid": ""
+    },
+    {
+        "id": "database_config",
+        "type": "influxdb",
+        "hostname": "127.0.0.1",
+        "port": "8086",
+        "protocol": "http",
+        "database": "iot",
+        "name": "Local InfluxDB"
+    }
+]

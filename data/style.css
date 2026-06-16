@@ -1,0 +1,134 @@
+:root {
+  color-scheme: dark;
+  --bg: #071018;
+  --panel: #101c28;
+  --panel-soft: #152638;
+  --text: #eef7ff;
+  --muted: #9bb1c5;
+  --green: #38d77b;
+  --yellow: #ffd166;
+  --red: #ff4d5e;
+  --blue: #5aa9ff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, rgba(56, 215, 123, 0.16), transparent 32rem),
+    radial-gradient(circle at bottom right, rgba(90, 169, 255, 0.12), transparent 28rem),
+    var(--bg);
+  color: var(--text);
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.shell {
+  width: min(1120px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 40px 0;
+}
+
+.hero {
+  margin-bottom: 28px;
+}
+
+.eyebrow {
+  color: var(--green);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+h1,
+h2,
+p {
+  margin-top: 0;
+}
+
+h1 {
+  margin-bottom: 8px;
+  font-size: clamp(2.4rem, 8vw, 5rem);
+  line-height: 0.9;
+}
+
+.subtitle,
+.hint {
+  color: var(--muted);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 18px;
+}
+
+.card {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 22px;
+  padding: 22px;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02)), var(--panel);
+  box-shadow: 0 20px 70px rgba(0, 0, 0, 0.28);
+}
+
+.wide {
+  grid-column: 1 / -1;
+}
+
+.badge {
+  display: inline-flex;
+  margin-bottom: 16px;
+  border-radius: 999px;
+  padding: 8px 12px;
+  background: var(--blue);
+  color: #03111f;
+  font-weight: 800;
+}
+
+.badge.nominal {
+  background: var(--green);
+}
+
+.badge.warning {
+  background: var(--yellow);
+}
+
+.badge.critical,
+.badge.emergency_stop {
+  background: var(--red);
+}
+
+button,
+input {
+  width: 100%;
+  border: 0;
+  border-radius: 12px;
+  padding: 12px 14px;
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+  background: var(--green);
+  color: #03130b;
+  font-weight: 800;
+}
+
+button.danger {
+  background: var(--red);
+  color: white;
+}
+
+input {
+  margin: 8px 0 12px;
+  background: var(--panel-soft);
+  color: var(--text);
+}
+
+.buttons,
+form {
+  display: grid;
+  gap: 12px;
+}
